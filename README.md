@@ -18,7 +18,7 @@ $ ./build/b -tlist
 
 ## Targets and Dependencies
 
-Right now the codegen introduces only one target `ilasm-mone`. It expects `ilasm` and `mono` executables to be available in the `$PATH` environment variables. Lots of Linux distros provide them via the mono packages in their official repos:
+Right now the codegen introduces only one target `ilasm-mono`. It expects `ilasm` and `mono` executables to be available in the `$PATH` environment variables. Lots of Linux distros provide them via the mono packages in their official repos:
 
 ```consols
 $ sudo xbps-install mono      # Void Linux
