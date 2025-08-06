@@ -189,7 +189,7 @@ struct ILasm_Mono {
 }
 
 pub unsafe fn get_apis(targets: *mut Array<TargetAPI>) {
-    da_append(targets, TargetAPI {
+    da_append(targets, TargetAPI::V1 {
         name: c!("ilasm-mono"),
         file_ext: c!(".exe"),
         new,
