@@ -51,41 +51,29 @@ pub unsafe fn call_arg(loc: Loc, fun: Arg, out: *mut String_Builder, arity: usiz
         Arg::RefAutoVar(..)  => missingf!(loc, c!("RefAutoVar\n")),
         Arg::RefExternal(..) => missingf!(loc, c!("RefExternal\n")),
         Arg::External(name)  => {
-            // TODO: unhardcode the printf
-            //   The main difficulty here will be passing the string, since B ilasm-mono runtime only operates on int64
-            //   as of right now. Some hack is required in here. Look into the direction of boxing the values.
-            /*if strcmp(name, c!("printf")) == 0 {
-                for _i in 0..arity - 1 {
-                    sb_appendf(out, c!("        pop\n"));
+            let mut is_local_func = false;
+            for i in 0..funcs.len() {
+                let func = (*funcs)[i];
+                if strcmp(func.name, name) == 0 {
+                    is_local_func = true;
+                    break;
                 }
-                sb_appendf(out, c!("        newobj instance void [mscorlib]System.String::.ctor(int8*)\n"));
-                sb_appendf(out, c!("        call void class [mscorlib]System.Console::Write(string)\n"));
-                sb_appendf(out, c!("        ldc.i8 0\n"));
-            } else*/ {
-                let mut is_local_func = false;
-                for i in 0..funcs.len() {
-                    let func = (*funcs)[i];
-                    if strcmp(func.name, name) == 0 {
-                        is_local_func = true;
-                        break;
-                    }
-                }
-
-                if is_local_func {
-                    sb_appendf(out, c!("        call int64 class Program::'%s'("), name); // If the function we want to call collides with a instruction
-                    // we will get a syntax error so '' are necessary.
-                }
-                else {
-                    sb_appendf(out, c!("        ldsfld native int Program::'<%s_fnptr>'\n"), name);
-                    sb_appendf(out, c!("        calli unmanaged cdecl int64("));
-                }
-
-                for i in 0..arity {
-                    if i > 0 { sb_appendf(out, c!(", ")); }
-                    sb_appendf(out, c!("int64"));
-                }
-                sb_appendf(out, c!(")\n"));
             }
+
+            if is_local_func {
+                sb_appendf(out, c!("        call int64 class Program::'%s'("), name); // If the function we want to call collides with a instruction
+                // we will get a syntax error so '' are necessary.
+            }
+            else {
+                sb_appendf(out, c!("        ldsfld native int Program::'<%s_fnptr>'\n"), name);
+                sb_appendf(out, c!("        calli unmanaged cdecl int64("));
+            }
+
+            for i in 0..arity {
+                if i > 0 { sb_appendf(out, c!(", ")); }
+                sb_appendf(out, c!("int64"));
+            }
+            sb_appendf(out, c!(")\n"));
         },
         Arg::Literal(..)     => missingf!(loc, c!("Literal\n")),
         Arg::DataOffset(..)  => missingf!(loc, c!("DataOffset\n")),
@@ -568,7 +556,6 @@ pub unsafe fn generate_constructor(output: *mut String_Builder, globals: *const 
         let is_array = global.values.count > 1;
         if is_array {
             sb_appendf(output, c!("        ldc.i8 %zd\n"), global.values.count * 8);
-            //sb_appendf(output, c!("        call int64 Program::malloc(int64)\n"));
             sb_appendf(output, c!("        ldsfld native int Program::'<malloc_fnptr>'\n"));
             sb_appendf(output, c!("        calli unmanaged cdecl int64(int64)"));
             sb_appendf(output, c!("        stsfld int64 Program::'%s'\n"), global.name);
@@ -620,17 +607,6 @@ pub unsafe fn generate_constructor(output: *mut String_Builder, globals: *const 
         }
     }
 
-    /*if has_rand {
-        if mono {
-            sb_appendf(output, c!("        newobj instance void [mscorlib]System.Random::.ctor()\n"));
-        }
-        else {
-            sb_appendf(output, c!("        call class [mscorlib]System.Random [System.Runtime]System.Random::get_Shared()\n"));
-        }
-
-        sb_appendf(output, c!("        stsfld class [mscorlib]System.Random Program::'<Random>'\n"));
-    }*/
-
     sb_appendf(output, c!("        ret\n"));
     sb_appendf(output, c!("    }\n"));
 }
@@ -640,16 +616,11 @@ pub unsafe fn generate_fields(output: *mut String_Builder, globals: *const [Glob
         sb_appendf(output, c!("    .field public static int64 '%s'\n"), (*globals)[i].name);
     }
 
-    //let mut has_rand = false;
     let mut has_malloc = false;
     let mut undefined_extrns: Array<*const c_char> = zeroed();
 
     for i in 0..extrns.len() {
         let extrn = (*extrns)[i];
-        /*if strcmp(extrn, c!("rand")) == 0 {
-            has_rand = true;
-            sb_appendf(output, c!("    .field public static class [mscorlib]System.Random '<Random>'\n"));
-        }*/
 
         if strcmp(extrn, c!("malloc")) == 0 {
             has_malloc = true;
@@ -658,7 +629,7 @@ pub unsafe fn generate_fields(output: *mut String_Builder, globals: *const [Glob
         let mut extrn_defined = false;
         for j in 0..funcs.len() {
             let func = (*funcs)[j];
-            if strcmp(func.name, extrn) == 0 /*|| strcmp(c!("printf"), extrn) == 0*/ {
+            if strcmp(func.name, extrn) == 0 {
                 extrn_defined = true;
                 break;
             }
@@ -684,7 +655,7 @@ pub unsafe fn generate_fields(output: *mut String_Builder, globals: *const [Glob
         sb_appendf(output, c!("    .field public static native int '<%s_lib>'\n"), lib);
     }
 
-    if globals.len() > 0 || /* has_rand ||*/ has_undefined_extrns {
+    if globals.len() > 0 || has_undefined_extrns {
         if has_undefined_extrns {
             sb_appendf(output, c!("    .field public static string '<PosixSuffix>'\n"));
 
