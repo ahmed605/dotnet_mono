@@ -177,30 +177,44 @@ pub unsafe fn generate_funcs(funcs: *const [Func], output: *mut String_Builder, 
     }
 }
 
-pub unsafe fn usage(params: *const [Param]) {
-    fprintf(stderr(), c!("ilasm_mono codegen for the B compiler\n"));
+pub unsafe fn usage(params: *const [Param], mono: bool) {
+    fprintf(stderr(), c!("%s codegen for the B compiler\n"), if mono { c!("ilasm_mono") } else { c!("ilasm_core") });
     fprintf(stderr(), c!("OPTIONS:\n"));
     print_params_help(params);
 }
 
-struct ILasm_Mono {
+struct ILasm {
     output: String_Builder,
     cmd: Cmd,
+    mono: bool,
 }
 
 pub unsafe fn get_apis(targets: *mut Array<TargetAPI>) {
     da_append(targets, TargetAPI::V1 {
         name: c!("ilasm-mono"),
         file_ext: c!(".exe"),
-        new,
+        new: |a, args| {
+            new(a, args, true)
+        },
+        build: generate_program,
+        run: run_program,
+    });
+
+    da_append(targets, TargetAPI::V1 {
+        name: c!("ilasm-core"),
+        file_ext: c!(".b.dll"),
+        new: |a, args| {
+            new(a, args, false)
+        },
         build: generate_program,
         run: run_program,
     });
 }
 
-pub unsafe fn new(a: *mut arena::Arena, args: *const [*const c_char]) -> Option<*mut c_void> {
-    let gen = arena::alloc_type::<ILasm_Mono>(a);
-    memset(gen as _ , 0, size_of::<ILasm_Mono>());
+pub unsafe fn new(a: *mut arena::Arena, args: *const [*const c_char], mono: bool) -> Option<*mut c_void> {
+    let gen = arena::alloc_type::<ILasm>(a);
+    memset(gen as _ , 0, size_of::<ILasm>());
+    (*gen).mono = mono;
 
     let mut help = false;
     let params = &[
@@ -212,13 +226,13 @@ pub unsafe fn new(a: *mut arena::Arena, args: *const [*const c_char]) -> Option<
     ];
 
     if let Err(message) = parse_args(params, args) {
-        usage(params);
+        usage(params, mono);
         log(Log_Level::ERROR, c!("%s"), message);
         return None;
     }
 
     if help {
-        usage(params);
+        usage(params, mono);
         fprintf(stderr(), c!("\n"));
         fprintf(stderr(), c!("It doesn't really provide any useful parameters yet.\n"));
         return None;
@@ -230,11 +244,12 @@ pub unsafe fn generate_program(
     gen: *mut c_void, program: *const Program, program_path: *const c_char, garbage_base: *const c_char,
     _nostdlib: bool, debug: bool,
 ) -> Option<()> {
-    let gen = gen as *mut ILasm_Mono;
+    let gen = gen as *mut ILasm;
     let output = &mut (*gen).output;
     let cmd = &mut (*gen).cmd;
+    let mono = (*gen).mono;
 
-    if debug { todo!("Debug information for ilasm-mono") }
+    if debug { todo!("Debug information for ilasm") }
 
     sb_appendf(output, c!(".assembly 'Main' {}\n"));
     sb_appendf(output, c!(".module Main.exe\n"));
@@ -265,13 +280,25 @@ pub unsafe fn generate_program(
 pub unsafe fn run_program(
     gen: *mut c_void, program_path: *const c_char, run_args: *const [*const c_char],
 ) -> Option<()> {
-    let gen = gen as *mut ILasm_Mono;
+    let gen = gen as *mut ILasm;
     let cmd = &mut (*gen).cmd;
+    let mono = (*gen).mono;
 
-    cmd_append!{
-        cmd,
-        c!("mono"), program_path,
+    if mono && !cfg!(target_os = "windows") {
+        cmd_append! {
+            cmd,
+            c!("mono"),
+        }
     }
+
+    if !mono {
+        cmd_append! {
+            cmd,
+            c!("dotnet"),
+        }
+    }
+
+    cmd_append!{ cmd, program_path, }
 
     da_append_many(cmd, run_args);
     if !cmd_run_sync_and_reset(cmd) { return None; }
